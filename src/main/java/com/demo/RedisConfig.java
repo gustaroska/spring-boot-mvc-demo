@@ -28,7 +28,8 @@ public class RedisConfig extends CachingConfigurerSupport {
         final RedisTemplate<String, Object> template = new RedisTemplate<String, Object>();
         template.setConnectionFactory(jedisConnectionFactory());
         template.setValueSerializer(new GenericToStringSerializer<Object>(Object.class));
-//        template.setValueSerializer(new GenericJackson2JsonRedisSerializer()); todo: try enable this line
+        template.setHashValueSerializer(new GenericToStringSerializer<Object>(Object.class));
+        //template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer()); 
         return template;
     }
 

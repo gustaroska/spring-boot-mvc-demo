@@ -7,8 +7,6 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.demo.exception.CustomException;
 import com.demo.mapper.TutorialMapper;
 import com.demo.model.Tutorial;
 import com.demo.repository.TutorialRepository;
@@ -47,8 +44,7 @@ public class DataController {
 			tutorialRepository.findByTitleContaining(title).forEach(tutorials::add);
 
 		if (tutorials.isEmpty()) {
-			throw new CustomException(1001, "Data Not Found");
-			//return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+			return new ResponseEntity<>(HttpStatus.NO_CONTENT);
 		}
 
 		return new ResponseEntity<>(tutorials, HttpStatus.OK);

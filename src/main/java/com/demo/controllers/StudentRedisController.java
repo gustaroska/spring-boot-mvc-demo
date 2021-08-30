@@ -103,7 +103,7 @@ public class StudentRedisController {
 			Student _student = studentData.get();
 			_student.setStatus(StudentDataService.SUBMITTED_STATUS);
 			_student.setLastModifiedDate(new Date());
-			return new ResponseEntity<>(studentDataService.save(_student, true), HttpStatus.OK);
+			return new ResponseEntity<>(studentDataService.save(_student), HttpStatus.OK);
 		} else {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 		}

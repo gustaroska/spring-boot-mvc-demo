@@ -9,8 +9,8 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache.ValueWrapper;
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import com.demo.helper.KafkaDataMessage;
 import com.demo.helper.TopicConfig;
+import com.demo.mapper.StudentMapper;
 import com.demo.model.Student;
 import com.demo.redis.StudentRedisRepository;
 import com.demo.repository.StudentDataRepository;
@@ -30,7 +31,7 @@ public class StudentDataService {
 
 	private final Logger logger = LoggerFactory.getLogger(StudentDataService.class);
 	
-	private final static String CACHE = "students";
+	public final static String CACHE = "students";
 	
 	public final static String DRAFTED_STATUS = "drafted";
 	
@@ -47,6 +48,9 @@ public class StudentDataService {
 
 	@Autowired
 	StudentDataRepository studentDataRepository; // JPA Hibernate
+	
+	@Autowired
+	StudentMapper studentMapper; // MyBatis Mapper
 
 	@KafkaListener(topics = TopicConfig.STUDENTS_INBOUND, groupId = "group_id")
 	public void consume(String message) throws IOException {
@@ -67,18 +71,18 @@ public class StudentDataService {
 	    evictAllCaches();
 	}
 
-	@CachePut(CACHE)
-	public Student save(Student student, boolean append) throws Exception {
-		
+	@CachePut(value=CACHE, key="#student.id")
+	public Student save(Student student) throws Exception {
+		Student data = student;
 		try {
-				Student data = studentDataRepository.save(student);
+				
+				if(student.getStatus().equals(SUBMITTED_STATUS))	{	
+					data = studentDataRepository.save(student);
+				}
 		
 				// start prepare pub
 				String status = "Penambahan";
-				if (!append) {
-					
-					// manually remove cache
-					cacheManager.getCache(CACHE).evict(student.getId());
+				if (data.getLastModifiedDate() != null) {
 					
 					status = "Perubahan";
 				}
@@ -89,19 +93,22 @@ public class StudentDataService {
 				//this.kafkaTemplate.send(TopicConfig.STUDENTS_OUTBOUND, jsonMsg);
 				// end prepare pub
 		
-				return data;
 				
 		} catch (Exception e) {
 			// TODO: handle exception
 			e.printStackTrace();
 		}
 		
-		return null;
+		return data;
 	}
 
-	@Cacheable(value=CACHE, key = "#id")
-	public Optional<Student> get(String id) throws Exception {
-		return studentDataRepository.findById(id);
+	@Cacheable(CACHE)
+	public Student get(String id) throws Exception {
+		Optional<Student> result = studentDataRepository.findById(id);
+		if(result.isPresent()) {
+			return result.get();
+		}
+		return null;
 	}
 	
 	public List<Student> list() throws Exception {
@@ -110,8 +117,23 @@ public class StudentDataService {
 		return students;
 	}
 
-	@CacheEvict(CACHE)
-	public void delete(String id) throws Exception {
-		studentDataRepository.deleteById(id);
+	@CachePut(value=CACHE, key="#id")
+	public Student delete(String id) throws Exception {
+		
+		Optional<Student> result = studentDataRepository.findById(id);
+		
+		if(result.isPresent()) {
+			
+			Student data = result.get();
+			data.setDeletedDate(new Date());
+			
+			studentMapper.deleteById(id);
+			
+			
+			
+			return data;
+		}
+		return null;
+		
 	}
 }

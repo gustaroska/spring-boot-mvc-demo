@@ -26,22 +26,22 @@ public class StudentMailService {
 	private JavaMailSender javaMailSender;
 
 	@Autowired
-	StudentDataRepository studentDataRepository; // Redis
+	StudentDataService studentDataService; // Redis
 
 	@KafkaListener(topics = TopicConfig.STUDENTS_OUTBOUND, groupId = "group_id")
-	public void studentDataSendEmail(String message) throws IOException {
+	public void studentDataSendEmail(String message) throws Exception {
 		logger.info(String.format("#### -> Consumed message -> %s", message));
 
 		KafkaDataMessage kdm = new ObjectMapper().readValue(message, KafkaDataMessage.class);
 
-		Optional<Student> student = studentDataRepository.findById(kdm.getId());
+		Student student = studentDataService.get(kdm.getId());
 
-		if (student.isPresent()) {
+		if (student != null) {
 			SimpleMailMessage msg = new SimpleMailMessage();
 			msg.setTo("gustaroska@gmail.com", "gustaroska@outlook.com");
 			msg.setFrom("admin@donatur.id");
 			msg.setSubject("Update Data Student");
-			msg.setText(kdm.getMessage() + "\n\n" + student.get().toString());
+			msg.setText(kdm.getMessage() + "\n\n" + student.toString());
 
 			javaMailSender.send(msg);
 		}

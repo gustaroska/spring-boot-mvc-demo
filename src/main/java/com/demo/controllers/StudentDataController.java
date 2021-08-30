@@ -8,6 +8,8 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache.ValueWrapper;
+import org.springframework.cache.CacheManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -22,7 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.demo.ResponseWrapper;
 import com.demo.ResponseWrapperList;
-import com.demo.exception.CustomException;
 import com.demo.model.Student;
 import com.demo.service.StudentDataService;
 
@@ -32,75 +33,140 @@ public class StudentDataController {
 	
 	private final Logger logger = LoggerFactory.getLogger(StudentDataController.class);
 
+	private final static String SUBMIT_ACTION = "submit";
+	
+	private final static String EDIT_ACTION = "edit";
+	
+	private final static String UNDO_DELETE_ACTION = "undo";
 	
 	@Autowired
 	StudentDataService studentDataService;
 	
+	@Autowired
+	CacheManager cacheManager;
+	
 
-	@GetMapping("/students")
-	public ResponseEntity<ResponseWrapperList> getAllStudents(@RequestParam(required = false) String title)  throws Exception{
+	@GetMapping
+	public ResponseEntity<ResponseWrapperList> getListByParam(@RequestParam(required = false) String title)  throws Exception{
 			
 		List<Student> students = studentDataService.list();
 
 		if (students.isEmpty()) {
-			throw new CustomException(1001, "Data Not Found");
+			return new ResponseEntity<>(new ResponseWrapperList(), HttpStatus.OK);
 		}
 
 		return new ResponseEntity<>(new ResponseWrapperList(students), HttpStatus.OK);
 		
 	}
 
-	@GetMapping("/students/{id}")
-	public ResponseEntity<ResponseWrapper> getStudentById(@PathVariable("id") String id) throws Exception {
-		Optional<Student> studentData = studentDataService.get(id);
+	@GetMapping("/{id}")
+	public ResponseEntity<ResponseWrapper> getById(@PathVariable("id") String id) throws Exception {
+		Student studentData = studentDataService.get(id);
 
-		if (studentData.isPresent()) {
-			return new ResponseEntity<>(new ResponseWrapper(studentData.get()), HttpStatus.OK);
+		if (studentData != null) {
+			return new ResponseEntity<>(new ResponseWrapper(studentData), HttpStatus.OK);
 		} else {
 			return new ResponseEntity<>(new ResponseWrapper(HttpStatus.NOT_FOUND.getReasonPhrase(), HttpStatus.NOT_FOUND.value()), HttpStatus.NOT_FOUND);
 		}
 	}
 
-	@PostMapping("/students")
-	public ResponseEntity<ResponseWrapper> createStudent(@RequestBody Student student) throws Exception {
+	@PostMapping
+	public ResponseEntity<ResponseWrapper> create(
+			@RequestParam(name = "action", required = false) String action, // available action: SUBMIT
+			@RequestBody Student student) throws Exception {
 		try {
-			String id = UUID.randomUUID().toString();
-			Student _student = new Student(id, student.getName(), student.getMale(), student.getGrade(), StudentDataService.SUBMITTED_STATUS); 
-			_student.setCreatedDate(new Date());		
-			studentDataService.save(_student, true);
 			
-			return new ResponseEntity<>(new ResponseWrapper(_student), HttpStatus.OK);
+			Student data = studentDataService.save(validate(student, new Student(UUID.randomUUID().toString()), action));
+			
+			return new ResponseEntity<>(new ResponseWrapper(data), HttpStatus.OK);
 		} catch (Exception e) {
 			e.printStackTrace();
 			return new ResponseEntity<>(new ResponseWrapper(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(), HttpStatus.INTERNAL_SERVER_ERROR.value()), HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 	}
 
-	@PutMapping("/students/{id}")
-	public ResponseEntity<ResponseWrapper> updateStudent(@PathVariable("id") String id, @RequestBody Student student) throws Exception {
-		Optional<Student> studentData = studentDataService.get(id);
+	@PutMapping("/{id}")
+	public ResponseEntity<ResponseWrapper> update(@PathVariable("id") String id, 
+			@RequestParam(name = "action", required = false) String action, // available action: SUBMIT | EDIT
+			@RequestBody Student student) throws Exception {
+		
+		ValueWrapper cacheValue = cacheManager.getCache(StudentDataService.CACHE).get(id);
+		
+		Optional<Student> studentData = Optional.ofNullable((Student)cacheValue.get());
+		
+		if (!studentData.isPresent()) {
+			
+			studentData = Optional.ofNullable(studentDataService.get(id));
+		}
 
 		if (studentData.isPresent()) {
-			Student _student = studentData.get();
-			_student.setName(student.getName());
-			_student.setMale(student.getMale());
-			_student.setGrade(student.getGrade());
-			_student.setLastModifiedDate(new Date());
-			return new ResponseEntity<>(new ResponseWrapper(studentDataService.save(_student, false)), HttpStatus.OK);
+			
+			return new ResponseEntity<>(new ResponseWrapper(studentDataService.save(validate(student, studentData.get(), action))), HttpStatus.OK);
 		} else {
 			return new ResponseEntity<>(new ResponseWrapper(HttpStatus.NOT_FOUND.getReasonPhrase(), HttpStatus.NOT_FOUND.value()), HttpStatus.NOT_FOUND);
 		}
 	}
 
-	@DeleteMapping("/students/{id}")
-	public ResponseEntity<ResponseWrapper> deleteStudent(@PathVariable("id") String id) throws Exception {
+	@DeleteMapping("/{id}")
+	public ResponseEntity<ResponseWrapper> delete(@PathVariable("id") String id,
+			@RequestParam(name = "action", required = false) String action // available action: UNDO_DELETE
+			) throws Exception {
 		try {
+			
+			if(action != null && action.equals(UNDO_DELETE_ACTION)) {
+				
+				ValueWrapper cacheValue = cacheManager.getCache(StudentDataService.CACHE).get(id);
+				
+				if (cacheValue != null) {
+					
+					studentDataService.save((Student)cacheValue.get());
+				}
+				
+				
+				
+				return new ResponseEntity<>(new ResponseWrapper(), HttpStatus.NO_CONTENT);	
+			}
+			
 			studentDataService.delete(id);
+			
 			return new ResponseEntity<>(new ResponseWrapper(), HttpStatus.NO_CONTENT);
 		} catch (Exception e) {
+			e.printStackTrace();
 			return new ResponseEntity<>(new ResponseWrapper(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(), HttpStatus.INTERNAL_SERVER_ERROR.value()), HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 	}
 
 
+    private Student validate(Student _student, Student data, String action) {
+    	Student student = data;
+    	
+
+    	if(_student != null) {
+
+	    	student.setName(_student.getName());
+	    	student.setMale(_student.getMale());
+	    	student.setGrade(_student.getGrade()); // check if user granted to change this value
+	
+	    	if(data.getCreatedDate() != null) {
+	    		student.setLastModifiedDate(new Date());	
+	    	}
+	    	
+    	}
+    	
+    	if(action == null) {
+    		if(student.getStatus() == null) student.setStatus(StudentDataService.DRAFTED_STATUS);
+		}else {
+			
+			if(action.equals(SUBMIT_ACTION)) { // make sure user login is authorized for this action
+				student.setStatus(StudentDataService.SUBMITTED_STATUS); 
+			}	
+			
+			if(action.equals(EDIT_ACTION)) { // make sure user login is authorized for this action
+				student.setStatus(StudentDataService.DRAFTED_STATUS); 
+			}	
+			
+
+		}
+    	return student;
+    }
 }

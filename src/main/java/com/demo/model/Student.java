@@ -8,12 +8,15 @@ import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
 
+import org.springframework.data.domain.Persistable;
 import org.springframework.data.redis.core.RedisHash;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "students")
-@RedisHash("Student")
-public class Student implements Serializable {
+@RedisHash("students")
+public class Student implements Serializable, Persistable<String>{ 
 	
 	@Id
     private String id;
@@ -36,9 +39,16 @@ public class Student implements Serializable {
 	@Column(name = "last_modified_date")
 	private Date lastModifiedDate;
 	
+	@Column(name = "deleted_date")
+	private Date deletedDate;
+	
 	public Student() {
 		// TODO Auto-generated constructor stub
 	}
+	
+	public Student(String id) {
+        this.id = id;
+    }
 
     public Student(String id, String name, boolean male, int grade, String status) {
         this.id = id;
@@ -104,9 +114,34 @@ public class Student implements Serializable {
 		this.lastModifiedDate = lastModifiedDate;
 	}
 
+	public Date getDeletedDate() {
+		return deletedDate;
+	}
+
+	public void setDeletedDate(Date deletedDate) {
+		this.deletedDate = deletedDate;
+	}
+
 	@Override
 	public String toString() {
 		return "Student [id=" + id + ", name=" + name + ", male=" + male + ", grade=" + grade + ", status=" + status
-				+ ", createdDate=" + createdDate + ", lastModifiedDate=" + lastModifiedDate + "]";
+				+ ", createdDate=" + createdDate + ", lastModifiedDate=" + lastModifiedDate + ", deletedDate="
+				+ deletedDate + "]";
+	}
+
+	@Override
+	@JsonIgnore
+	public boolean isNew() {
+		// TODO Auto-generated method stub
+		if(this.createdDate == null) {
+			this.createdDate = new Date(); // because this executed only when deal with database
+		}
+		
+		if(this.deletedDate != null) {
+			this.deletedDate = null;
+			return true; // when undo delete from redis, use insert statement
+		}
+		
+		return this.lastModifiedDate == null;
 	}
 }
